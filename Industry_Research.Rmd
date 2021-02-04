@@ -1,0 +1,1371 @@
+---
+title: "TLC Industry Analysis"
+output:
+  word_document: default
+  html_document: default
+---
+
+## Introduction
+
+```{r Install Packages, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+notebook_start_time=Sys.time()
+```
+
+Before we install the necessary packages to execute the necessary code if they weren't installed already.
+
+```{r Install Packages if not already installed, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+necessary_packages_vec=c("RSocrata","readxl", "dplyr","chron","ggplot2","tidyr","stringr", "xts", "class", "lubridate")
+
+package_is_not_installed_vec=c()
+
+install_start_time=Sys.time()
+
+for(i in 1:length(necessary_packages_vec)){
+  if(necessary_packages_vec[i] %in% rownames(installed.packages())==FALSE){
+    install.packages(necessary_packages_vec[i], repos = "http://cran.us.r-project.org", dependencies = TRUE, INSTALL_opts = '--no-lock')
+    package_is_installed_vec=c(package_is_installed_vec,TRUE)
+  }else{
+    necessary_packages_vec[i]=necessary_packages_vec[i]
+  }
+}
+
+if(length(package_is_not_installed_vec)>0){
+  install_end_time=Sys.time()
+  install_execution_time=difftime(install_end_time,install_start_time,units="secs")
+  install_execution_time=round(as.numeric(install_execution_time),2)
+}else{install_execution_time=0
+}
+```
+
+Then, let's load the necessary packages.  
+
+```{r Load Packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(RSocrata)
+library(readxl)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(xts)
+library(stringr)
+library(lubridate)
+
+```
+
+Now it's time to import the data for every section in this document, primarily using the Socrata package to connect with the necessary APIs to automatically download the most updated datasets from online as opposed to having to manually download and import most packages. This is especially useful with frequently updated datasets such as datasets from the Taxi and Limousine Commission, and U.S. Department of Transportation. 
+
+```{r Import Data, echo=FALSE, message=FALSE, warning=FALSE}
+
+fhv_agg_base_df=read.socrata("https://data.cityofnewyork.us/resource/2v9c-2k7f.json")
+active_fhv_df=read.socrata("https://data.cityofnewyork.us/resource/8wbx-tsch.json")
+WMI_df <- read_excel("~/Tanzeel Ahmed Transportation/Industry Research/WMI.xlsx")
+county_transportation_df=read.socrata("https://data.bts.gov/resource/qdmf-cxm3.json")
+
+#EV Registration Data Imports
+
+current_ev_by_utility= read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Current by Utility")
+
+current_ev_registrations_by_county= read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Current by County")
+
+current_ev_by_utility= read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Current by Utility")
+
+current_ev_by_make_model=read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Current by Make-Model")
+
+original_ev_registrations_by_month=read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Original Over Time")
+
+original_ev_registration_by_make=read_excel("~/Tanzeel Ahmed Transportation/Industry Research/EV-Registration-Tables.xlsx", sheet="Original by Make")
+
+#Import Data on Trips by Distance for Each Borough
+
+manhattan_trips_by_dist_df=read.socrata("https://data.bts.gov/resource/w96p-f2qv.json?Level=County&State Postal Code=NY&County Name=New York County")
+
+brooklyn_trips_by_dist_df=read.socrata("https://data.bts.gov/resource/w96p-f2qv.json?Level=County&State Postal Code=NY&County Name=Kings County")
+
+queens_trips_by_dist_df=read.socrata("https://data.bts.gov/resource/w96p-f2qv.json?Level=County&State Postal Code=NY&County Name=Queens County")
+
+staten_island_trips_by_dist_df=read.socrata("https://data.bts.gov/resource/w96p-f2qv.json?Level=County&State Postal Code=NY&County Name=Richmond County")
+
+bronx_trips_by_dist_df=read.socrata("https://data.bts.gov/resource/w96p-f2qv.json?Level=County&State Postal Code=NY&County Name=Bronx County")
+
+#Current Overall Vehicle Registrations
+current_vehicle_registration_df=read.socrata("https://data.ny.gov/resource/vw9z-y4t7.json?record_type=VEH")
+
+```
+
+
+
+
+## Trip Analysis  
+
+Let's look at the trips by distance information imported from the U.S. Department of Transportation. I sort and summarize the data to make further data visualizations and interpretations more intuitive.  
+
+```{r NYC Mobility and EV Inputs, echo=FALSE, message=FALSE, warning=FALSE}
+mobility_report_url="https://www1.nyc.gov/html/dot/downloads/pdf/mobility-report-singlepage-2019.pdf"
+
+nyc_car_prop=0.302
+
+staten_island_sustainable_prop=0.28
+manhattan_core_sustainable_prop=0.85
+manhattan_outer_sustainable_prop=0.81
+southern_bronx_sustainable_prop=0.77
+northern_bronx_sustainable_prop=0.67
+inner_queens_sustainable=0.78
+outer_queens_sustainable=0.41
+middle_queens_sustainable=0.59
+inner_brooklyn_sustainable=0.79
+outer_brooklyn_sustainable=0.62
+
+miles_per_kwh=3.75
+```
+
+```{r Clean Up Local Transportation Profile Data, echo=FALSE, message=FALSE, warning=FALSE}
+for(i in 5:ncol(county_transportation_df)){
+  county_transportation_df[,i]=as.numeric(county_transportation_df[,i])
+}
+ny_county_transportation_df=subset(county_transportation_df,county_transportation_df$state_name=="New York")
+nyc_transportation_df=subset(ny_county_transportation_df,ny_county_transportation_df$county_name=="New York County"|ny_county_transportation_df$county_name=="Kings County"|ny_county_transportation_df$county_name=="Queens County"|ny_county_transportation_df$county_name=="Richmond County"|ny_county_transportation_df$county_name=="Bronx County")
+
+```
+
+```{r Clean Up Trips by Distance Dataframe, echo=FALSE, message=FALSE, warning=FALSE}
+nyc_trips_by_dist_df=rbind(manhattan_trips_by_dist_df,brooklyn_trips_by_dist_df,queens_trips_by_dist_df,staten_island_trips_by_dist_df,bronx_trips_by_dist_df)
+
+#Format Columns to fit the right data types.
+
+for(i in 7:ncol(nyc_trips_by_dist_df)){
+  nyc_trips_by_dist_df[,i]=as.numeric(nyc_trips_by_dist_df[,i])
+}
+
+nyc_trips_by_dist_df$date=as.Date(nyc_trips_by_dist_df$date)
+
+for(i in 1:nrow(nyc_trips_by_dist_df)){
+  if(nyc_trips_by_dist_df$county[i]=="New York County"){
+    nyc_trips_by_dist_df$county[i]="Manhattan"
+  }else if(nyc_trips_by_dist_df$county[i]=="Kings County"){
+    nyc_trips_by_dist_df$county[i]="Brooklyn"
+  }else if(nyc_trips_by_dist_df$county[i]=="Queens County"){
+    nyc_trips_by_dist_df$county[i]="Queens"
+  }else if(nyc_trips_by_dist_df$county[i]=="Richmond County"){
+    nyc_trips_by_dist_df$county[i]="Staten Island"
+  }else if(nyc_trips_by_dist_df$county[i]=="Bronx County"){
+    nyc_trips_by_dist_df$county[i]="Bronx"
+  }
+}
+
+#Create month labels and month number columns that will make it easier to perform data visualization.
+
+month_label_vec=c()
+for(i in 1:nrow(nyc_trips_by_dist_df)){
+  month_label=paste(month(nyc_trips_by_dist_df$date[i],label=TRUE),year(nyc_trips_by_dist_df$date[i]))
+  month_label=as.character(month_label)
+  month_label_vec=c(month_label_vec, month_label)
+}
+
+month_no_vec=c()
+for(i in 1:nrow(nyc_trips_by_dist_df)){
+  month_no=month(nyc_trips_by_dist_df$date[i])+(year(nyc_trips_by_dist_df$date[i])-2019)*12
+  month_no_vec=c(month_no_vec,month_no)
+}
+
+#Calculate minimum distance since trips are onlyu counted between ranges.
+min_dist_vec=nyc_trips_by_dist_df$trips_1*0+nyc_trips_by_dist_df$trips_1_3*1+nyc_trips_by_dist_df$trips_3_5*3+nyc_trips_by_dist_df$trips_5_10*5+nyc_trips_by_dist_df$trips_10_25*10+nyc_trips_by_dist_df$trips_25_50*25+nyc_trips_by_dist_df$trips_50_100*50+nyc_trips_by_dist_df$trips_100_250*100+nyc_trips_by_dist_df$trips_250_500*250+nyc_trips_by_dist_df$trips_500*500
+
+#Estimate average distance of trips assuming a normal distribution of trip distances between the lower and upper bounds of each range category (i.e. the average distance of trips between 1 and 3 miles would be 2 miles).For the rate trips that are 500 or more miles, I will still use 500 since it is impossible to determine the average for this limited sub-section of trips, and the population size is insignificant enough to affect the aggregate miles travelled.
+
+avg_dist_vec=nyc_trips_by_dist_df$trips_1*0.5+nyc_trips_by_dist_df$trips_1_3*2+nyc_trips_by_dist_df$trips_3_5*4+nyc_trips_by_dist_df$trips_5_10*7.5+nyc_trips_by_dist_df$trips_10_25*17.5+nyc_trips_by_dist_df$trips_25_50*37.5+nyc_trips_by_dist_df$trips_50_100*75+nyc_trips_by_dist_df$trips_100_250*175+nyc_trips_by_dist_df$trips_250_500*375+nyc_trips_by_dist_df$trips_500*500
+
+
+nyc_trips_by_dist_df=data.frame(nyc_trips_by_dist_df,month=month_label_vec, month_no=month_no_vec, min_dist=min_dist_vec, avg_dist=avg_dist_vec)
+
+trips_by_date_county=nyc_trips_by_dist_df%>%
+  group_by(date,county)%>%
+  summarize(trips,trips_1_10=sum(trips_1,trips_1_3,trips_3_5,trips_5_10),trips_1_10_prop=(trips_1_10/trips))
+
+trips_by_date=nyc_trips_by_dist_df%>%
+  group_by(date)%>%
+  summarize(trips=sum(trips),trips_1_10=sum(trips_1,trips_1_3,trips_3_5,trips_5_10),trips_1_10_prop=(trips_1_10/trips))
+
+trips_by_date_dist=nyc_trips_by_dist_df%>%
+  group_by(date)%>%
+  summarize(trips=sum(trips),trips_10=sum(trips_1,trips_1_3,trips_3_5,trips_5_10),trips_10_prop=(trips_10/trips),trips_5=sum(trips_1,trips_1_3,trips_3_5),trips_5_prop=(trips_5/trips),trips_over_10=(trips-trips_10),trips_over_10_prop=(1-trips_10_prop))
+
+dist_by_borough=nyc_trips_by_dist_df%>%
+  group_by(month, county)%>%
+  summarize(month_no=mean(month_no), pop=mean(pop_stay_at_home)+mean(pop_not_stay_at_home), trips=sum(trips),min_dist=sum(min_dist), avg_dist=sum(avg_dist), min_dist_per_cap=min_dist/pop, min_dist_per_trip=min_dist/trips, avg_dist_per_cap=avg_dist/pop, avg_dist_per_trip=avg_dist/trips)%>%
+  arrange(month_no)
+
+#Sort distance measures by individual borough.
+
+dist_by_borough_bronx=subset(dist_by_borough,dist_by_borough$county=="Bronx")
+
+dist_by_borough_manhattan=subset(dist_by_borough,dist_by_borough$county=="Manhattan")
+
+dist_by_borough_queens=subset(dist_by_borough,dist_by_borough$county=="Queens")
+
+dist_by_borough_staten_island=subset(dist_by_borough,dist_by_borough$county=="Staten Island")
+
+dist_by_borough_brooklyn=subset(dist_by_borough,dist_by_borough$county=="Brooklyn")
+  
+#Summarized Dataset for all of New York City.
+
+dist_all_boroughs=nyc_trips_by_dist_df%>%
+  group_by(month)%>%
+  summarize(month_no=mean(month_no),pop=5*(mean(pop_stay_at_home)+mean(pop_not_stay_at_home)),trips=sum(trips),min_dist=sum(min_dist), avg_dist=sum(avg_dist), min_dist_per_cap=min_dist/pop, min_dist_per_trip=min_dist/trips, avg_dist_per_cap=avg_dist/pop, avg_dist_per_trip=avg_dist/trips)%>%
+  arrange(month_no)
+
+```
+
+### Data Visualization for Trips
+
+Unfortunately, I've had to consult with different data sources for different data metrics instead of finding a singular comprehensive source of data. The most comprehensive data I've found about overall mobility does not break the data down by trip type, but the less recent NYC Mobility survey does. I've extrapolated potential vehicle miles travelled based on the proportion of NYC trips travelled by cars according to its most recent Mobility report and the average distances for New York trips.
+
+```{r Data Visualization of NYC Estimated Distances Traveled, echo=FALSE, warning=FALSE, message=FALSE}
+
+high_est_nyc_trip_dist_plot=ggplot(dist_all_boroughs,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("High Est. Distance Traveled by Month - New York City")
+
+high_est_bronx_trip_dist_plot=ggplot(dist_by_borough_bronx,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("High Est. Distance Traveled by Month - Bronx")
+
+high_est_queens_trip_dist_plot=ggplot(dist_by_borough_queens,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("High Est. Distance Travelled by Month - Queens")
+
+high_est_manhattan_trip_dist_plot=ggplot(dist_by_borough_manhattan,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("High Est. Distance Travelled by Month - Manhattan")
+
+high_est_staten_island_trip_dist_plot=ggplot(dist_by_borough_staten_island,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("High Est. Distance Traveled by Month - Staten Island")
+
+high_est_brooklyn_trip_dist_plot=ggplot(dist_by_borough_brooklyn,aes(x=month_no,y=avg_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("High Est. Distance Travelled by Month - Brooklyn")
+
+#Low Estimates
+
+low_est_nyc_trip_dist_plot=ggplot(dist_all_boroughs,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Traveled")+
+  ggtitle("Low Est. Distance Traveled by Month - New York City")
+
+low_est_bronx_trip_dist_plot=ggplot(dist_by_borough_bronx,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Est. Distance Travelled by Month - Bronx")
+
+low_est_queens_trip_dist_plot=ggplot(dist_by_borough_queens,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Est. Distance Travelled by Month - Queens")
+
+low_est_manhattan_trip_dist_plot=ggplot(dist_by_borough_manhattan,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Distance Travelled by Month - Manhattan")
+
+low_est_staten_island_trip_dist_plot=ggplot(dist_by_borough_staten_island,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Est. Distance Travelled by Month - Staten Island")
+
+low_est_brooklyn_trip_dist_plot=ggplot(dist_by_borough_brooklyn,aes(x=month_no,y=min_dist))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Est. Distance Travelled by Month - Brooklyn")
+
+#High Estimate Distance Traveled Plots
+high_est_bronx_trip_dist_plot
+high_est_brooklyn_trip_dist_plot
+high_est_manhattan_trip_dist_plot
+high_est_queens_trip_dist_plot
+high_est_staten_island_trip_dist_plot
+
+#Low Estimate Distance Traveled Plots
+low_est_bronx_trip_dist_plot
+low_est_brooklyn_trip_dist_plot
+low_est_manhattan_trip_dist_plot
+low_est_queens_trip_dist_plot
+low_est_staten_island_trip_dist_plot
+```
+
+
+
+
+
+```{r Total Addressable Market, echo=FALSE, warning=FALSE, message=FALSE}
+
+nyc_vmt=dist_all_boroughs%>%
+  summarize(month, month_no, Low_Est=min_dist*nyc_car_prop, High_Est=avg_dist*nyc_car_prop, Low_Est_Per_Capita=min_dist_per_cap*nyc_car_prop, High_Est_Per_Capita=avg_dist_per_cap*nyc_car_prop)
+
+staten_island_vmt=dist_by_borough_staten_island%>%
+  summarize(month, month_no, Low_Est=min_dist*(1-staten_island_sustainable_prop), High_Est=avg_dist*(1-staten_island_sustainable_prop), Low_Est_Per_Capita=min_dist_per_cap*(1-staten_island_sustainable_prop), High_Est_Per_Capita=avg_dist_per_cap*(1-staten_island_sustainable_prop))
+
+#Overall Vehicle Miles Traveled Estimate
+
+staten_island_vmt_plot=ggplot(staten_island_vmt,aes(x=month_no,y=Low_Est))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Monthly VMT Estimate - Staten Island")
+
+nyc_vmt_plot=ggplot(nyc_vmt,aes(x=month_no,y=Low_Est))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Distance Travelled")+
+  ggtitle("Low Monthly VMT Estimate - New York City")
+
+```
+
+
+## Electric Vehicle Statistics
+
+```{r EV Registrations ,echo=FALSE, warning=FALSE, message=FALSE}
+
+#Estimated Electric Vehicle Proportions
+current_vehicle_registration_df$registration_class=as.numeric(current_vehicle_registration_df$registration_class)
+
+nyc_current_vehicle_registration_df=subset(current_vehicle_registration_df, current_vehicle_registration_df$county=="NEW YORK"|current_vehicle_registration_df$county=="QUEENS"|current_vehicle_registration_df$county=="KINGS"|current_vehicle_registration_df$county=="RICHMOND"|current_vehicle_registration_df$county=="BRONX")
+
+current_vehicle_registrations_by_county=current_vehicle_registration_df%>%
+  group_by(county)%>%
+  summarize(Total=sum(registration_class))
+
+ev_prop_by_county=data.frame(County=current_vehicle_registrations_by_county$county,((current_vehicle_registration_df%>%
+  filter(fuel_type=="ELECTRIC")%>%
+  group_by(county)%>%
+  summarize(Total=sum(registration_class))%>%
+  select(Total))/current_vehicle_registrations_by_county$Total))
+
+nyc_ev_prop=sum(nyc_current_vehicle_registration_df$registration_class[nyc_current_vehicle_registration_df$fuel_type=="ELECTRIC"])/sum(nyc_current_vehicle_registration_df$registration_class)
+  
+#More detailed current EV registrations.
+
+current_ev_registrations_nyc=subset(current_ev_registrations_by_county, current_ev_registrations_by_county$County=="New York County"| current_ev_registrations_by_county$County=="Kings County"| current_ev_registrations_by_county$County=="Bronx County"| current_ev_registrations_by_county$County=="Queens County"| current_ev_registrations_by_county$County=="Richmond County")
+
+current_nyc_bev=sum(current_ev_registrations_nyc$BEV)
+
+#Original EV Registrations
+
+first_month_year=paste(original_ev_registrations_by_month$`Month Name`[1],original_ev_registrations_by_month$Year[1])
+
+last_month_year=paste(original_ev_registrations_by_month$`Month Name`[nrow(original_ev_registrations_by_month)-1],original_ev_registrations_by_month$Year[nrow(original_ev_registrations_by_month)-1])
+
+original_ev_registrations_by_month$Year=as.numeric(original_ev_registrations_by_month$Year)
+
+bev_registrations_by_year=original_ev_registrations_by_month%>%
+  group_by(Year)%>%
+  summarize(BEV=sum(BEV))
+bev_registrations_by_year=na.omit(bev_registrations_by_year)
+
+new_registration_growth_rate=round(((bev_registrations_by_year$BEV[nrow(bev_registrations_by_year)-1]-bev_registrations_by_year$BEV[1])/bev_registrations_by_year$BEV[1])^(1/(bev_registrations_by_year$Year[nrow(bev_registrations_by_year)-1]-bev_registrations_by_year$Year[1]))-1,4)*100
+
+lifetime_original_bev_registrations=sum(original_ev_registrations_by_month$BEV[c(1:nrow(original_ev_registrations_by_month)-1)])
+
+
+```
+  
+
+```{r Total Addressable Electric Car VMT, echo=FALSE, warning=FALSE, message=FALSE}
+nyc_electric_vmt=nyc_vmt%>%
+  summarize(month, month_no, Low_Est=Low_Est*nyc_ev_prop, High_Est=High_Est*nyc_ev_prop)
+
+
+```
+
+From **`r first_month_year` to `r last_month_year`**, there have been **`r lifetime_original_bev_registrations`** original battery electric vehicle registrations (no plug-in hybrids or range extenders) in the state of New York alone. There are currently **`r current_nyc_bev`** battery electric vehicles legally registered within New York City itself.  
+
+&nbsp;  
+
+It should be noted that many personal vehicles owned by new residents of the state are still registered with the out-of-state plates of their previous states of residence to avoid the higher registration fees and hassels of the Department of Motor Vehicles. New battery electric vehicle registrations have grown at an annualized rate of **`r new_registration_growth_rate`%** between **`r bev_registrations_by_year$Year[1]` and `r bev_registrations_by_year$Year[nrow(bev_registrations_by_year)-1]`**.  
+
+&nbsp;
+
+To better reconcile the different sources of data, I've estimated vehicle miles traveled using the most recent modal proportion data from New York City's most recent Mobility Survey alongside the more recently and frequently updated trip distance statistics provided by the United States Bureau of Transportation Statistics.
+
+
+## Aggregate Base Reports
+
+The purpose of this section is to assess general trends of the New York City livery industry including, but not limited to: the impact the proliferation of ride-shares has had on the aggregate market and the traditional car service, the impact of COVID-19 on the industry, the impact of increased TLC regulations and congestion surcharges in Manhattan.Fortunately, aggregate data reports are regularly updated on NYC Open Data. The data I will be using are aggregate monthly base reports and active FHV databases.
+
+Aggregate base reports are relatively easier to interpret since they compile legally mandated trip data from the hundreds of dispatch bases in New York City and organize them by month. This allows me to better observe how overall market conditions have changed over time. 
+
+The active FHV database can give a list of every active FHV, the license owners, expiration date, vehicle identification numbers, and more. Fortunately, vehicle VINs are determined according to specific standards. Certain digits in a car's VIN can actually determine which factory the car was manufactured in and which year the car was manufactered. This alone can determine the make and year of a car. Unfortunately, individual manufacturers have their own standards for serializing which of their models (i.e. Prius, Camry, and RAV4 are subsets of Toyota).
+
+To clean the data, I created an extra variable that labels the month number relative to the first monthly aggregate report. That way, as the database continously gets updated over time and more reports are added, my analytics will still be able to incorporate the new data inflows. Most bases are very local (i.e. neighborhood car services). Larger car services and High-Volume app-based services will have a "Doing Business As" field. For example, Uber has multiple bases you can be affiliated as an FHV owner, however, they are all still doing business as Uber.Once the data is grouped by the base company, it is a simple matter of including Uber, Lyft, Via, and Juno in the ride-share category, while the others are traditional car services.
+
+```{r FHV Active License Data Cleaning, echo=FALSE, message=FALSE, warning=FALSE}
+fhv_active_license_dba_vec=active_fhv_df$name
+
+active_fhv_df=cbind(active_fhv_df[,1:3],fhv_active_license_dba_vec,active_fhv_df[,4:ncol(active_fhv_df)])
+
+colnames(active_fhv_df)=c("Active","FHV_License_Number","Name","DBA","License_Type","Expiration_Date","DMV_Plate_Number","VIN","Model_Year","Base_Number","Base_Name","Base_Type","Base_Phone","Base_Address","Reason","Last_Date_Updated","Last_Time_Updated","Permit_License_Number","Certification_Date","Hack_Up_Date","Website","VEH","WAV")
+
+#Column Cleaning
+active_fhv_df$Model_Year=as.numeric(active_fhv_df$Model_Year)
+active_fhv_df$Name=as.character(active_fhv_df$Name)
+active_fhv_df$DBA=as.character(active_fhv_df$DBA)
+active_fhv_df$VEH=as.factor(active_fhv_df$VEH)
+active_fhv_df$Expiration_Date=as.Date(active_fhv_df$Expiration_Date,"%m/%d/%Y")
+active_fhv_df$Last_Date_Updated=as.Date(active_fhv_df$Last_Date_Updated,"%m/%d/%Y")
+
+
+#Find Similar Doing Business As names and simplify them under one company. For example, American Lease will have multiple doing-business-as subsidiaries.
+active_fhv_df$DBA[active_fhv_df$DBA=="AMERICAN,UNITED,TRANSPORTATION,INC"|active_fhv_df$DBA=="AMERICAN UNITED TRANSPORTATION INC"|
+         active_fhv_df$DBA=="AMERICAN,UNITED,TRANSPORTATION"]="AMERICAN LEASE"
+
+active_fhv_df$DBA[active_fhv_df$DBA=="LUX,CREDIT,CONSULTANTS,LLC"|active_fhv_df$DBA=="LUX CREDIT CONSULTANTS LLC"|
+         active_fhv_df$DBA=="LUX,CREDIT,CONSULTANTS"]="BUGGY"
+
+active_fhv_df$DBA[active_fhv_df$DBA=="VENTURE,LEASING,LLC"|active_fhv_df$DBA=="QLR NINE INC"|active_fhv_df$DBA=="QLR,THREE,INC"|
+         active_fhv_df$DBA=="QLR,FIVE,LLC"|active_fhv_df$DBA=="VENTURE LEASING LLC"|active_fhv_df$DBA=="METRO,LIVERY,LEASING"|
+       active_fhv_df$DBA=="QLR,EIGHT,INC"|active_fhv_df$DBA=="METRO LIVERY LEASING LLC"|active_fhv_df$DBA=="QLR,SIX,INC"|
+         active_fhv_df$DBA=="QLR,ONE,INC"|active_fhv_df$DBA=="METRO LIVERY LEASING"|active_fhv_df$DBA=="Q,L,R,FIVE,LLC"]="TOWER"
+
+active_fhv_df$DBA[active_fhv_df$DBA=="RIGO,LIMO,AUTO,CORP"|active_fhv_df$DBA=="RIGO,LIMO-AUTO,CORP"]="FAST TRACK MOBILITY"
+
+active_fhv_df$DBA[active_fhv_df$DBA=="CB,LIVERY,LEASING,LLC"|active_fhv_df$DBA=="CB LIVERY LEASING LLC"|active_fhv_df$DBA=="HURRICANE,MANAGEMENT,CORP"|
+         active_fhv_df$DBA=="HAMBONE,MANAGEMENT,CORP"]="NEW YORK LIVERY LEASING"
+
+#Group the FHV Active Licenses by a Company's Doing Business As Name.
+active_fhv_df_by_name=active_fhv_df%>%group_by(DBA)
+active_fhv_df_by_name=active_fhv_df_by_name%>%summarize(Active=length(Active),Model_Year=mean(Model_Year,0))
+active_fhv_df_by_name=active_fhv_df_by_name[order(active_fhv_df_by_name$Active,decreasing=TRUE),]
+
+#Group the FHV Active Licenses by the Vehicle Model Year
+current_year=as.numeric(format(Sys.Date(),"%Y"))
+
+active_fhv_df_by_year=active_fhv_df%>%
+  filter(as.numeric(Model_Year)<(current_year+1)&as.numeric(Model_Year)>1900)%>%
+  group_by(Model_Year)%>%
+  summarize(Model_Year=mean(Model_Year),Active=length(Active))%>%
+  arrange(desc(Model_Year))
+
+#Group the FHV Active Licenses by the VEH code. This indicates special types of vehicles.
+active_fhv_df_by_type=active_fhv_df%>%
+  group_by(VEH)%>%
+  summarize(Active=length(Active))%>%
+  arrange(desc(Active))
+
+electric_fhv_df=subset(active_fhv_df,active_fhv_df$VEH=="BEV")
+hybrid_fhv_df=subset(active_fhv_df,active_fhv_df$VEH=="HYB")
+wav_fhv_df=subset(active_fhv_df,active_fhv_df$VEH=="WAV")
+
+electric_fhv_by_year=electric_fhv_df%>%
+  filter(as.numeric(Model_Year)<(current_year+1)&as.numeric(Model_Year)>1900)%>%
+  group_by(Model_Year)%>%
+  summarize(Model_Year=mean(Model_Year),Active=length(Active))%>%
+  arrange(desc(Model_Year))
+
+hybrid_fhv_df_by_year=hybrid_fhv_df%>%
+  filter(as.numeric(Model_Year)<(current_year+1)&as.numeric(Model_Year)>1900)%>%
+  group_by(Model_Year)%>%
+  summarize(Model_Year=mean(Model_Year),Active=length(Active))%>%
+  arrange(desc(Model_Year))
+
+wav_fhv_df_by_year=wav_fhv_df%>%
+  filter(as.numeric(Model_Year)<(current_year+1)&as.numeric(Model_Year)>1900)%>%
+  group_by(Model_Year)%>%
+  summarize(Model_Year=mean(Model_Year),Active=length(Active))%>%
+  arrange(desc(Model_Year))
+
+```
+
+Let's look at some summary of who owns the For-Hire-Vehicles in New York City and more importantly, how concentrated the ownership of these assets are.
+
+```{r FHV Active Vehicles Summary Statistics, echo=FALSE, message=FALSE, warning=FALSE}
+#Calculate statistics related to FHV License Owners
+fhv_more_than_one_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+fhv_more_than_five_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>5])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+fhv_more_than_ten_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>10])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+fhv_more_than_twenty_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>20])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+fhv_more_than_fifty_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>50])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+fhv_more_than_hundred_car_proportion=round((sum(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>100])-length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1]))/sum(active_fhv_df_by_name$Active)*100,2)
+
+#Proportion of Owners who own more than than X cars.
+owners_more_than_one_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>1])*100/nrow(active_fhv_df_by_name),2)
+
+owners_more_than_five_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>5])*100/nrow(active_fhv_df_by_name),2)
+
+owners_more_than_ten_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>10])*100/nrow(active_fhv_df_by_name),2)
+
+owners_more_than_twenty_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>20])*100/nrow(active_fhv_df_by_name),2)
+
+owners_more_than_fifty_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>50])*100/nrow(active_fhv_df_by_name),2)
+
+owners_more_than_hundred_proportion=round(length(active_fhv_df_by_name$Active[active_fhv_df_by_name$Active>100])*100/nrow(active_fhv_df_by_name),2)
+
+#Concentration of the biggest TLC rental companies or car services
+top_four_car_proportion=round(sum(active_fhv_df_by_name$Active[1:4])*100/sum(active_fhv_df_by_name$Active),2)
+top_five_car_proportion=round(sum(active_fhv_df_by_name$Active[1:5])*100/sum(active_fhv_df_by_name$Active),2)
+top_ten_car_proportion=round(sum(active_fhv_df_by_name$Active[1:10])*100/sum(active_fhv_df_by_name$Active),2)
+top_twenty_car_proportion=round(sum(active_fhv_df_by_name$Active[1:20])*100/sum(active_fhv_df_by_name$Active),2)
+
+active_fhv_df_by_veh=active_fhv_df%>%group_by(VEH)
+active_fhv_df_by_veh=active_fhv_df_by_veh%>%summarize(Active=length(Active),Model_Year=mean(Model_Year))
+
+
+```
+
+The ownership of FHVs in the Non-Taxi Livery Industry can be segmented into both an oligopoly and perfect competition. While most FHVs are owned by individual owners who only one car that they use to work as TLC Drivers, a significant chunk of fleets are owned by large multi-car fleets.
+
+`r fhv_more_than_one_car_proportion`% of active For-Hire Vehicles (which shall be hereafter referred to as FHVs), are the additional cars of owners who own more than 1 car.  
+
+`r fhv_more_than_five_car_proportion`% of active FHVs are the additional cars of owners who own more than 5 cars.  
+
+`r fhv_more_than_ten_car_proportion`% of active FHVs are the additional cars of owners who own more than 10 cars.  
+
+`r fhv_more_than_twenty_car_proportion`% of active FHVs are the additional cars of owners who own more than 20 cars.  
+
+`r fhv_more_than_fifty_car_proportion`% of active FHVs are the additional cars of owners who own more than 50 cars.  
+
+`r fhv_more_than_hundred_car_proportion`% of active FHVs are the additional cars of owners who own more than 100 cars.
+
+
+`r owners_more_than_one_proportion`% of FHV owners own more than 1 car.  
+
+`r owners_more_than_five_proportion`% of FHV owners own more than 5 car.  
+
+`r owners_more_than_ten_proportion`% of FHV owners own more than 10 car.  
+
+`r owners_more_than_twenty_proportion`% of FHV owners own more than 20 car.  
+
+`r owners_more_than_fifty_proportion`% of FHV owners own more than 50 car.  
+
+`r owners_more_than_hundred_proportion`% of FHV owners own more than 100 car.
+
+**While the vast majority of FHV owners are individual drivers, especially due to the proliferation of ride-share services providing opportunites for independent contractors to control their own careers without being price gouged by the biggest TLC Rental Companies.**
+
+`r top_four_car_proportion`% of active FHVs are owned by the biggest four companies.  
+
+`r top_five_car_proportion`% of active FHVs are owned by the biggest five companies.  
+
+`r top_ten_car_proportion`% of active FHVs are owned by the biggest ten companies.  
+
+`r top_twenty_car_proportion`% of active FHVs are owned by the biggest twenty companies.
+
+
+```{r FHV Aggregate Base Report Data Cleaning, echo=FALSE, message=FALSE, warning=FALSE}
+#Make sure Numeric Variables are Numeric in the dataframe
+fhv_agg_base_df$year=as.numeric(fhv_agg_base_df$year)
+fhv_agg_base_df$month=as.numeric(fhv_agg_base_df$month)
+fhv_agg_base_df$total_dispatched_shared_trips=as.numeric(fhv_agg_base_df$total_dispatched_shared_trips)
+fhv_agg_base_df$total_dispatched_trips=as.numeric(fhv_agg_base_df$total_dispatched_trips)
+fhv_agg_base_df$unique_dispatched_vehicles=as.numeric(fhv_agg_base_df$unique_dispatched_vehicles)
+
+adj_month_no=fhv_agg_base_df$month+(fhv_agg_base_df$year-2015)*12
+fhv_agg_base_df$dba=as.character(fhv_agg_base_df$dba)
+
+fhv_agg_base_df=cbind(fhv_agg_base_df[,c(1:2,ncol(fhv_agg_base_df),3:5)],adj_month_no,fhv_agg_base_df[,c(6:(ncol(fhv_agg_base_df)-1))])
+colnames(fhv_agg_base_df)=c("base_license_no","base_name","dba","year","month_no",
+               "month_name","adj_month_no","total_trips","total_shared", "unique_vehicles")
+
+
+#Factor the names of TLC Car Bases and factor the Doing Business As levels. Doing Business As tends to only be filled for larger bases such as Uber.Smaller car services can be grouped as doing business as "Other"
+
+base_names_vec=levels(as.factor(fhv_agg_base_df$base_name))
+fhv_agg_base_df$dba[is.na(fhv_agg_base_df$dba)]="Other"
+
+#Determine whether a given base is a ride-share or car service.
+status_vec=c()
+for(i in 1:nrow(fhv_agg_base_df)){
+  if(fhv_agg_base_df$dba[i]=="UBER"|fhv_agg_base_df$dba[i]=="LYFT"|fhv_agg_base_df$dba[i]=="VIA"|fhv_agg_base_df$dba[i]=="JUNO"){
+    status="Ride-share"
+  }else{
+    status="Car Service"
+  }
+  status_vec=c(status_vec,status)
+}
+fhv_agg_base_df=data.frame(fhv_agg_base_df,Status=status_vec)
+
+ride_share_df=subset(fhv_agg_base_df,fhv_agg_base_df$Status=="Ride-share")
+other_df=subset(fhv_agg_base_df,fhv_agg_base_df$Status=="Car Service")
+```
+
+I can divide the ride-share and traditional car service data frames even further based on significant events in the industry. Effective February 1, 2019, New York City mandated higher minimum payouts to ride-share drivers and enacted a congestion surcharge. This increased the price of ride-share trips relative to cabs and traditional car services and chipped away at the growth of the ride-share industry in New York.
+
+```{r Subset FHV Aggregate Base Reports for COVID and Congestion Pricing, echo=FALSE, message=FALSE, warning=FALSE}
+#Create multiple subsets of monthly base report data based on the months pre-COVID and pre-congestion tax.
+
+ride_share_df=ride_share_df[order(ride_share_df$adj_month_no,ride_share_df$base_name),]
+ride_share_pre_covid=subset(ride_share_df,ride_share_df$adj_month_no<=((2020-2015)*12+2))
+ride_share_pre_tax=subset(ride_share_df,ride_share_df$adj_month_no<=((2019-2015)*12+1))
+
+other_df=other_df[order(other_df$adj_month_no,other_df$base_name),]
+other_df_pre_covid=subset(other_df,other_df$adj_month_no<=((2020-2015)*12+2))
+other_df_pre_tax=subset(other_df,other_df$adj_month_no<=((2019-2015)*12+1))
+
+
+#Group ride shares and car service aggregate totals by month. 
+total_by_month=fhv_agg_base_df%>%
+  group_by(adj_month_no)%>%
+  summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+total_by_month_pre_covid=subset(total_by_month,total_by_month$adj_month_no<=((2020-2015)*12+2))
+
+total_by_month_pre_tax=subset(total_by_month,total_by_month$adj_month_no<=((2019-2015)*12+1))
+
+
+ride_share_by_month=ride_share_df%>%group_by(adj_month_no)
+ride_share_by_month=ride_share_by_month%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+ride_share_by_month_pre_covid=ride_share_pre_covid%>%group_by(adj_month_no)
+ride_share_by_month_pre_covid=ride_share_by_month_pre_covid%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+ride_share_by_month_pre_tax=ride_share_pre_tax%>%group_by(adj_month_no)
+ride_share_by_month_pre_tax=ride_share_by_month_pre_tax%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+other_by_month=other_df%>%group_by(adj_month_no)
+other_by_month=other_by_month%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+other_by_month_pre_covid=other_df_pre_covid%>%group_by(adj_month_no)
+other_by_month_pre_covid=other_by_month_pre_covid%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+other_by_month_pre_tax=other_df_pre_tax%>%group_by(adj_month_no)
+other_by_month_pre_tax=other_by_month_pre_tax%>%summarize(total_trips=sum(total_trips),unique_vehicles=sum(unique_vehicles),trips_per_car=total_trips/unique_vehicles)
+
+#Market Share
+ride_share_market_share_by_month=data.frame(adj_month_no=ride_share_by_month$adj_month_no,trip_share=ride_share_by_month$total_trips/total_by_month$total_trips,car_share=ride_share_by_month$unique_vehicles/total_by_month$unique_vehicles,trips_per_car=ride_share_by_month$trips_per_car)
+
+ride_share_market_share_by_month_pre_covid=data.frame(adj_month_no=ride_share_by_month_pre_covid$adj_month_no,trip_share=ride_share_by_month_pre_covid$total_trips/total_by_month_pre_covid$total_trips,car_share=ride_share_by_month_pre_covid$unique_vehicles/total_by_month_pre_covid$unique_vehicles,trips_per_car=ride_share_by_month_pre_covid$trips_per_car)
+
+ride_share_market_share_by_month_pre_tax=data.frame(adj_month_no=ride_share_by_month_pre_tax$adj_month_no,trip_share=ride_share_by_month_pre_tax$total_trips/total_by_month_pre_tax$total_trips,car_share=ride_share_by_month_pre_tax$unique_vehicles/total_by_month_pre_tax$unique_vehicles,trips_per_car=ride_share_by_month_pre_tax$trips_per_car)
+
+car_service_market_share_by_month=data.frame(adj_month_no=other_by_month$adj_month_no,trip_share=other_by_month$total_trips/total_by_month$total_trips,car_share=other_by_month$unique_vehicles/total_by_month$unique_vehicles,trips_per_car=other_by_month$trips_per_car)
+
+car_service_market_share_by_month_pre_covid=data.frame(adj_month_no=other_by_month_pre_covid$adj_month_no,trip_share=other_by_month_pre_covid$total_trips/total_by_month_pre_covid$total_trips,car_share=other_by_month_pre_covid$unique_vehicles/total_by_month_pre_covid$unique_vehicles,trips_per_car=other_by_month_pre_covid$trips_per_car)
+
+car_service_market_share_by_month_pre_tax=data.frame(adj_month_no=other_by_month_pre_tax$adj_month_no,trip_share=other_by_month_pre_tax$total_trips/total_by_month_pre_tax$total_trips,car_share=other_by_month_pre_tax$unique_vehicles/total_by_month_pre_tax$unique_vehicles,trips_per_car=other_by_month_pre_tax$trips_per_car)
+
+```
+
+The most dramatic shock to the industry, however, was in fact, COVID-19. Even though, customers grew more scared of taking the subway for cleanliness concerns, the stay-at-home order eliminated the need for most transportation at all. The few trips left were mostly for essential workers or people running short-errands who preferred not to take the subway or bus.After the trough in April, demand slowly began to trickle back. Once the New York City economy reopened, trips slowly came back. 
+
+Unfortunately, the expiration of CARES act unemployment benefits also meant that drivers who were not on the road rushed to drive faster than passenger demand growth could handle. This made every driver suffer lower earnings in September and October.
+
+```{r rideshare COVID, echo=FALSE, warning=FALSE, message=FALSE}
+#COVID-19 Monthly Changes
+
+rideshare_covid_drop_feb_mar=(paste("The monthly ride-share trips dropped by",
+round((ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)]-ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+3)])*100/ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)],2),"% between February 2020 and March 2020"))
+
+rideshare_covid_drop_feb_apr=(paste("The monthly ride-share trips dropped by",
+            round((ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)]-ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)])*100/ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)],2),
+            "% between February 2020 and April 2020"))
+
+rideshare_covid_drop_apr_may=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+5)]-ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)])*100/ride_share_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)],2),
+            "% between April 2020 and May 2020"))
+
+
+rideshare_covid_drop_apr_jun=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-2015)*12+6)]-ride_share_by_month$total_trips[((2020-2015)*12+4)])*100/ride_share_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and June 2020"))
+
+
+rideshare_covid_drop_apr_jul=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-2015)*12+7)]-ride_share_by_month$total_trips[((2020-2015)*12+4)])*100/ride_share_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and July 2020"))
+
+
+rideshare_covid_drop_apr_aug=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-2015)*12+8)]-ride_share_by_month$total_trips[((2020-2015)*12+4)])*100/ride_share_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and August 2020"))
+
+
+rideshare_covid_drop_apr_sep=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-2015)*12+9)]-ride_share_by_month$total_trips[((2020-2015)*12+4)])*100/ride_share_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and September 2020"))
+
+
+rideshare_covid_drop_apr_oct=(paste("The monthly ride-share trips increased by",
+            round((ride_share_by_month$total_trips[((2020-2015)*12+10)]-ride_share_by_month$total_trips[((2020-2015)*12+4)])*100/ride_share_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and October 2020"))
+```
+
+```{r car service COVID, echo=FALSE, warning=FALSE, message=FALSE}
+
+car_service_covid_drop_feb_mar=(paste("The monthly car service trips dropped by",
+            round((other_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)]-other_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+3)])*100/other_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+2)],2),
+            "% between February 2020 and March 2020"))
+
+car_service_covid_drop_feb_apr=(paste("The monthly car service trips dropped by",
+            round((other_by_month$total_trips[((2020-2015)*12+2)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+2)],2),
+            "% between February 2020 and April 2020"))
+
+car_service_covid_drop_apr_may=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+5)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and May 2020"))
+
+car_service_covid_drop_apr_jun=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+6)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and June 2020"))
+
+
+car_service_covid_drop_apr_jul=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+7)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and July 2020"))
+
+
+car_service_covid_drop_apr_aug=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+8)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and August 2020"))
+
+
+car_service_covid_drop_apr_sep=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+9)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and September 2020"))
+
+
+car_service_covid_drop_apr_oct=(paste("The monthly car service trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+10)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and October 2020"))
+```
+
+
+```{r total market COVID, echo=FALSE, warning=FALSE, message=FALSE}
+
+total_covid_drop_feb_mar=(paste("The monthly non-taxi trips dropped by",
+            round((total_by_month$total_trips[((2020-2015)*12+2)]-total_by_month$total_trips[((2020-2015)*12+3)])*100/total_by_month$total_trips[((2020-2015)*12+2)],2),
+            "% between February 2020 and March 2020"))
+
+total_covid_drop_feb_apr=(paste("The monthly non-taxi trips dropped by",
+            round((total_by_month$total_trips[((2020-2015)*12+2)]-total_by_month$total_trips[((2020-2015)*12+4)])*100/total_by_month$total_trips[((2020-2015)*12+2)],2),
+            "% between February 2020 and April 2020"))
+
+total_covid_drop_apr_may=(paste("The monthly non-taxi trips increased by",
+            round((other_by_month$total_trips[((2020-2015)*12+5)]-total_by_month$total_trips[((2020-2015)*12+4)])*100/other_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and May 2020"))
+
+total_covid_drop_apr_jun=(paste("The monthly car service trips increased by",
+            round((total_by_month$total_trips[((2020-2015)*12+6)]-other_by_month$total_trips[((2020-2015)*12+4)])*100/total_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and June 2020"))
+
+
+total_covid_drop_apr_jul=(paste("The monthly car service trips increased by",
+            round((total_by_month$total_trips[((2020-2015)*12+7)]-total_by_month$total_trips[((2020-2015)*12+4)])*100/total_by_month$total_trips[((2020-2015)*12+4)],2),
+            "% between April 2020 and July 2020"))
+
+
+total_covid_drop_apr_aug=(paste("The monthly non-taxi trips increased by",
+            round((total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+8)]-total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)])*100/total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)],2),
+            "% between April 2020 and August 2020"))
+
+
+total_covid_drop_apr_sep=(paste("The monthly non-taxi trips increased by",
+            round((total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+9)]-total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)])*100/total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)],2),
+            "% between April 2020 and September 2020"))
+
+
+total_covid_drop_apr_oct=(paste("The monthly non-taxi trips increased by",
+            round((total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+10)]-total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)])*100/total_by_month$total_trips[((2020-min(fhv_agg_base_df$year))*12+4)],2),
+            "% between April 2020 and October 2020"))
+```
+
+Both the ride share and car service industries suffered immensely due to the COVID-19 pandemic and the subsequent extreme lockdown of New York City. However, the impacts on both industries differed in both scope and recovery.  &nbsp;
+
+`r rideshare_covid_drop_feb_mar` &nbsp;
+
+`r rideshare_covid_drop_feb_apr`  &nbsp;
+ 
+`r car_service_covid_drop_feb_mar`   &nbsp;
+
+`r car_service_covid_drop_feb_apr`   &nbsp;
+
+`r total_covid_drop_feb_mar`   &nbsp;
+
+`r total_covid_drop_feb_apr`   &nbsp;
+
+
+The recovery of the livery industry mostly went to high-volume app-based ride-shares. &nbsp;
+ 
+`r rideshare_covid_drop_apr_oct`   &nbsp;
+
+`r car_service_covid_drop_apr_oct`  &nbsp;
+
+`r total_covid_drop_apr_oct`   &nbsp;
+
+
+From September 2020, it appears that the recovery in the car service industry faltered and car services continued their pre-COVID trend of losing the overall market and market share to ride-shares.
+
+### Data Visualization for Aggregate Base Reports
+
+```{r Assign Plots, echo=FALSE, message=FALSE, warning=FALSE}
+#Plot relationships between month and total trips
+
+ride_share_trips_plot=ggplot(ride_share_by_month,aes(x=adj_month_no,y=total_trips))+
+  theme_bw()+
+  geom_line(size=2,color="green")+
+  xlab("Month")+
+  ylab("Total Trips")+
+  ggtitle("Rideshare Trips By Month")
+
+ride_share_trips_per_car_plot=ggplot(ride_share_by_month,aes(x=adj_month_no,y=total_trips/unique_vehicles))+
+  theme_bw()+
+  geom_line(color="green",size=2)+
+  xlab("Month")+
+  ylab("Trips Per Car")+
+  ggtitle("Ride Share Trips Per Car By Month")
+
+car_service_trips_plot=ggplot(other_by_month,aes(x=adj_month_no,y=total_trips))+
+  theme_bw()+
+  geom_line(size=2,color="red")+
+  xlab("Month")+
+  ylab("Total Trips")+
+  ggtitle("Car Service Trips By Month")
+
+car_service_trips_per_car_plot=ggplot(other_by_month,aes(x=adj_month_no,y=total_trips/unique_vehicles))+
+  theme_bw()+
+  geom_line(size=2, color="red")+
+  xlab("Month")+
+  ylab("Trips Per Car")+
+  ggtitle("Car Service Trips Per Car By Month")
+
+total_trips_plot=ggplot(total_by_month,aes(x=adj_month_no,y=total_trips))+
+  theme_bw()+
+  geom_line(size=2,color="green")+
+  xlab("Month")+
+  ylab("Total Trips")+
+  ggtitle("Total Trips By Month")
+
+trips_per_car_plot=ggplot(total_by_month,aes(x=adj_month_no,y=total_trips/unique_vehicles))+
+  theme_bw()+
+  geom_line(size=2, color="green")+
+  xlab("Month")+
+  ylab("Trips Per Car")+
+  ggtitle("Aggregate Per Car By Month")
+
+ride_share_market_share_plot=ggplot(ride_share_market_share_by_month,aes(x=adj_month_no,y=trip_share))+
+  theme_bw()+
+  geom_line(size=2,color="green")+
+  xlab("Month")+
+  ylab("Market Share")+
+  ggtitle("Rideshare Market Share By Month")
+
+ride_share_car_share_plot=ggplot(ride_share_market_share_by_month,aes(x=adj_month_no,y=car_share))+
+  theme_bw()+
+  geom_line(size=2,color="green")+
+  xlab("Month")+
+  ylab("Proportion of Vehicles")+
+  ggtitle("Rideshare Car Share By Month","The proportion of non-taxis dispatched affiliated with ride-share bases.")
+
+car_service_market_share_plot=ggplot(car_service_market_share_by_month,aes(x=adj_month_no,y=trip_share))+
+  theme_bw()+
+  geom_line(size=2,color="red")+
+  xlab("Month")+
+  ylab("Market Share")+
+  ggtitle("Car Service Market Share By Month")
+
+car_service_car_share_plot=ggplot(car_service_market_share_by_month,aes(x=adj_month_no,y=car_share))+theme_bw()+
+  geom_line(size=2,color="red")+
+  xlab("Month")+
+  ylab("Proportion of Vehicles")+
+  ggtitle("Car Service Car Share By Month","The proportion of non-taxis dispatched affiliated with ride-share bases.")
+```
+
+```{r View Ride Share Total Trip Plots, echo=FALSE, message=FALSE, warning=FALSE}
+ride_share_trips_plot
+ride_share_trips_per_car_plot
+```
+&nbsp;  
+
+As you can see, the ride-share market started to accelerate its recovery after its April 2020 trough following the lockdown of New York City. As of October 2020, roughly half of the industry recession recovered.Prior to the moratorium on for hire vehicles, the number of trips per car had been declining because Uber and Lyft kept signing up new drivers faster than consumer demand for ride-share trips can accommodate.Following the August moratorium, passenger growth led to more revenue opportunities for the limited supply of drivers. Unfortunately, the moratorium entrenched my competitors in the TLC Rental industry. Even if I could benefit as a driver, I am also capped as a driver only, with limited ability to grow my business and escape the low wages and long hours as a driver. COVID had less of a pronounced impact on the number of trips per car because the number of drivers also declined since they received Pandemic Unemployment Assistance. Following the summer expiration of CARES act benefits, trips per car temporarily suffered even during the re-opening of the economy, until eventually continuing its recovery.  
+
+&nbsp;
+
+
+```{r View Car Service Total Trip Plots, echo=FALSE, message=FALSE, warning=FALSE}
+car_service_trips_plot
+car_service_trips_per_car_plot
+
+```
+&nbsp;  
+
+From 2016 and onward, the car service industry suffered despite the New York City Council's goals of decimating the ride-share industry. Despite new regulatory overhauls, the aggregate traditional car service industry still continued a relatively linear downtrend.In additional to the decline of the car service market, trips per car affiliated with a car service base declined, even as the number of cars affiliated with car service bases declined, albeit at a less extreme rate.  
+
+&nbsp;
+
+
+```{r View Industry Total Trip Plots, echo=FALSE, message=FALSE, warning=FALSE}
+total_trips_plot
+trips_per_car_plot
+```
+&nbsp;  
+
+The growth of the non-taxi livery industry in New York City almost perfectly matches the growth in the ride-share industry.Trips per car in the non-taxi livery industry remained relatively stable until volatility increased dramatically due to COVID and fluctuating unemployment benefits.  
+
+&nbsp;
+
+
+
+```{r View Ride Share Market Share Plots, echo=FALSE, message=FALSE, warning=FALSE}
+ride_share_market_share_plot
+ride_share_car_share_plot
+```
+&nbsp;  
+
+Around 2019, ride-share's market growth seemed to slow down and hovered around 90% of the market. Now that growth in the total non-taxi livery industry is also slowing down, one can expect that the ride-share trip growth will grow since its taken almost all of the market share away from traditional car services.Since COVID forced a lot of drivers to not drive, ride-shares now have a slightly lower but still overwhelmingly high proportion of the FHVs on the road.  
+
+&nbsp;
+
+
+```{r View Car Service Market Share Plots, echo=FALSE, message=FALSE, warning=FALSE}
+car_service_market_share_plot
+car_service_car_share_plot
+
+```
+&nbsp;  
+
+Traditional car services seem to have a dead cat bounce in market share, but still only has `r round(car_service_market_share_by_month$trip_share[nrow(car_service_market_share_by_month)]*100/max(car_service_market_share_by_month$trip_share),2)`% of its peak market share in 2016.
+
+Traditional car services seem to have a dead cat bounce in market share, but still only has `r round(car_service_market_share_by_month$car_share[nrow(car_service_market_share_by_month)]*100/max(car_service_market_share_by_month$car_share),2)`% of its peak market share in 2016.
+
+### Linear and Logarithmic Models of the New York City Non-Taxi Livery Industry
+
+```{r Functions to Compare Linear of Logarithmic Models for Different Dependent Variables, echo=FALSE, warning=FALSE, message=FALSE}
+#Linear and Logarithmic Models
+
+#Function that shows the T-values for linear and logarithimic models of total trips.
+lm_log_compare_total_trips=function(df){
+  linear_model=lm(total_trips~adj_month_no,data=df)
+  log_model=lm(log(total_trips)~log(adj_month_no),data=df)
+  linear_summary=summary(linear_model)
+  log_summary=summary(log_model)
+  linear_coefficient_vec=colnames(linear_summary$coefficients)
+  log_coefficient_vec=colnames(log_summary$coefficients)
+  t_value_index=which(linear_coefficient_vec=="t value")
+  coefficient_name_vec=rownames(linear_summary$coefficients)
+  linear_t_value=linear_summary$coefficients[,t_value_index]
+  log_t_value=log_summary$coefficients[,t_value_index]
+  result_df=data.frame(coefficient_name_vec,linear_t_value,log_t_value)
+  return(result_df)
+}
+
+lm_log_compare_trips_per_car=function(df){
+  linear_model=lm(trips_per_car~adj_month_no,data=df)
+  log_model=lm(log(trips_per_car)~log(adj_month_no),data=df)
+  linear_summary=summary(linear_model)
+  log_summary=summary(log_model)
+  linear_coefficient_vec=colnames(linear_summary$coefficients)
+  log_coefficient_vec=colnames(log_summary$coefficients)
+  t_value_index=which(linear_coefficient_vec=="t value")
+  coefficient_name_vec=rownames(linear_summary$coefficients)
+  linear_t_value=linear_summary$coefficients[,t_value_index]
+  log_t_value=log_summary$coefficients[,t_value_index]
+  result_df=data.frame(coefficient_name_vec,linear_t_value,log_t_value)
+  return(result_df)
+}
+
+
+lm_log_compare_trip_share=function(df){
+  linear_model=lm(trip_share~adj_month_no,data=df)
+  log_model=lm(log(trip_share)~log(adj_month_no),data=df)
+  linear_summary=summary(linear_model)
+  log_summary=summary(log_model)
+  linear_coefficient_vec=colnames(linear_summary$coefficients)
+  log_coefficient_vec=colnames(log_summary$coefficients)
+  t_value_index=which(linear_coefficient_vec=="t value")
+  coefficient_name_vec=rownames(linear_summary$coefficients)
+  linear_t_value=linear_summary$coefficients[,t_value_index]
+  log_t_value=log_summary$coefficients[,t_value_index]
+  result_df=data.frame(coefficient_name_vec,linear_t_value,log_t_value)
+  return(result_df)
+}
+
+lm_log_compare_car_share=function(df){
+  linear_model=lm(car_share~adj_month_no,data=df)
+  log_model=lm(log(car_share)~log(adj_month_no),data=df)
+  linear_summary=summary(linear_model)
+  log_summary=summary(log_model)
+  linear_coefficient_vec=colnames(linear_summary$coefficients)
+  log_coefficient_vec=colnames(log_summary$coefficients)
+  t_value_index=which(linear_coefficient_vec=="t value")
+  coefficient_name_vec=rownames(linear_summary$coefficients)
+  linear_t_value=linear_summary$coefficients[,t_value_index]
+  log_t_value=log_summary$coefficients[,t_value_index]
+  result_df=data.frame(coefficient_name_vec,linear_t_value,log_t_value)
+  return(result_df)
+}
+```
+
+Here are the comparisons for whether linear or logarithmic models are more accurate in describing the trend in total trips over time.
+```{r Create Data Frames that Calculates the T Values for Linear and Logarithmic Models for Multiple Dependent Variables, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Create dataframe that shows the coefficients and variables for both every type of linear and logarithmic models.
+
+lm_log_total_trips_df=rbind(lm_log_compare_total_trips(ride_share_by_month),
+                lm_log_compare_total_trips(ride_share_by_month_pre_covid),
+                lm_log_compare_total_trips(ride_share_by_month_pre_tax),
+                lm_log_compare_total_trips(other_by_month),
+                lm_log_compare_total_trips(other_by_month_pre_covid),
+                lm_log_compare_total_trips(other_by_month_pre_tax),
+                lm_log_compare_total_trips(total_by_month),
+                lm_log_compare_total_trips(total_by_month_pre_covid),
+                lm_log_compare_total_trips(total_by_month_pre_tax))
+
+colnames(lm_log_total_trips_df)=c("Coefficient","Linear_T_Value","Log_T_Value")
+
+lm_log_trips_per_car_df=rbind(lm_log_compare_trips_per_car(ride_share_by_month),
+                lm_log_compare_trips_per_car(ride_share_by_month_pre_covid),
+                lm_log_compare_trips_per_car(ride_share_by_month_pre_tax),
+                lm_log_compare_trips_per_car(other_by_month),
+                lm_log_compare_trips_per_car(other_by_month_pre_covid),
+                lm_log_compare_trips_per_car(other_by_month_pre_tax),
+                lm_log_compare_trips_per_car(total_by_month),
+                lm_log_compare_trips_per_car(total_by_month_pre_covid),
+                lm_log_compare_trips_per_car(total_by_month_pre_tax))
+
+colnames(lm_log_trips_per_car_df)=c("Coefficient","Linear_T_Value","Log_T_Value")
+
+lm_log_trip_share_df=rbind(lm_log_compare_trip_share(ride_share_market_share_by_month),
+                           lm_log_compare_trip_share(ride_share_market_share_by_month_pre_covid),
+                lm_log_compare_trip_share(ride_share_market_share_by_month_pre_tax),
+                lm_log_compare_trip_share(car_service_market_share_by_month),
+                lm_log_compare_trip_share(car_service_market_share_by_month_pre_covid),
+                lm_log_compare_trip_share(car_service_market_share_by_month_pre_tax))
+
+colnames(lm_log_trip_share_df)=c("Coefficient","Linear_T_Value","Log_T_Value")
+
+lm_log_car_share_df=rbind(lm_log_compare_car_share(ride_share_market_share_by_month),
+                           lm_log_compare_car_share(ride_share_market_share_by_month_pre_covid),
+                lm_log_compare_car_share(ride_share_market_share_by_month_pre_tax),
+                lm_log_compare_car_share(car_service_market_share_by_month),
+                lm_log_compare_car_share(car_service_market_share_by_month_pre_covid),
+                lm_log_compare_car_share(car_service_market_share_by_month_pre_tax))
+
+colnames(lm_log_car_share_df)=c("Coefficient","Linear_T_Value","Log_T_Value")
+```
+
+```{r Determine whether to Use the Linear or Logarithmic Functions By Dependent Variable, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Add column to state which model the coefficients, intercepts, and t-values correspond to.Also determine whether the logarithmic model is more efficient for a given coefficient.
+use_log_total_trips=data.frame(Model=c(rep("Ride-share by Month",       nrow(lm_log_compare_total_trips(ride_share_by_month))),
+                             rep("Ride-share by Month Pre-COVID",                                nrow(lm_log_compare_total_trips(ride_share_by_month_pre_covid))),
+ rep("Ride-share by Month Pre-Tax",nrow(lm_log_compare_total_trips(ride_share_by_month_pre_tax))),
+ rep("Car Service by Month",nrow(lm_log_compare_total_trips(other_by_month))),
+ rep("Car Service by Month Pre-COVID",nrow(lm_log_compare_total_trips(other_by_month_pre_covid))),
+ rep("Car Service by Month Pre-Tax",nrow(lm_log_compare_total_trips(other_by_month_pre_tax))),
+ rep("Total by Month",nrow(lm_log_compare_total_trips(total_by_month))),
+ rep("Total by Month Pre-COVID",nrow(lm_log_compare_total_trips(total_by_month_pre_covid))),
+ rep("Total by Month Pre-Tax",nrow(lm_log_compare_total_trips(total_by_month_pre_tax)))),
+ lm_log_total_trips_df,Use_Log=lm_log_total_trips_df$Log_T_Value>lm_log_total_trips_df$Linear_T_Value)
+
+use_log_trips_per_car=data.frame(Model=c(rep("Ride-share Trips Per Car by Month",       nrow(lm_log_compare_trips_per_car(ride_share_by_month))),
+                             rep("Ride-share Trips Per Car by Month Pre-COVID",                                nrow(lm_log_compare_trips_per_car(ride_share_by_month_pre_covid))),
+ rep("Ride-share Trips Per Car by Month Pre-Tax",nrow(lm_log_compare_trips_per_car(ride_share_by_month_pre_tax))),
+ rep("Car Service Trips Per Car by Month",nrow(lm_log_compare_trips_per_car(other_by_month))),
+ rep("Car Service Trips Per Car by Month Pre-COVID",nrow(lm_log_compare_trips_per_car(other_by_month_pre_covid))),
+ rep("Car Service Trips Per Car by Month Pre-Tax",nrow(lm_log_compare_trips_per_car(other_by_month_pre_tax))),
+ rep("Total Trips Per Car by Month",nrow(lm_log_compare_trips_per_car(total_by_month))),
+ rep("Total Trips Per Car by Month Pre-COVID",nrow(lm_log_compare_trips_per_car(total_by_month_pre_covid))),
+ rep("Total Trips Per Car by Month Pre-Tax",nrow(lm_log_compare_trips_per_car(total_by_month_pre_tax)))),
+ lm_log_trips_per_car_df,Use_Log=lm_log_trips_per_car_df$Log_T_Value>lm_log_trips_per_car_df$Linear_T_Value)
+
+
+use_log_trip_share=data.frame(Model=c(
+ rep("Ride-share Market Share By Month",nrow(lm_log_compare_trip_share(ride_share_market_share_by_month))),
+ rep("Ride-share Market Share By Month Pre-COVID",nrow(lm_log_compare_trip_share(ride_share_market_share_by_month_pre_covid))),
+ rep("Ride-share Market Share By Month Pre-Tax",nrow(lm_log_compare_trip_share(ride_share_market_share_by_month_pre_tax))),
+ rep("Car Service Market Share By Month",nrow(lm_log_compare_trip_share(car_service_market_share_by_month))),
+ rep("Car Service Market Share By Month Pre-COVID",nrow(lm_log_compare_trip_share(car_service_market_share_by_month_pre_covid))),
+ rep("Car Service Market Share By Month Pre-Tax",nrow(lm_log_compare_trip_share(car_service_market_share_by_month_pre_tax)))
+ 
+ ),lm_log_trip_share_df,Use_Log=lm_log_trip_share_df$Log_T_Value>lm_log_trip_share_df$Linear_T_Value)
+
+
+use_log_car_share=data.frame(Model=c(
+ rep("Ride-share Car Share By Month",nrow(lm_log_compare_car_share(ride_share_market_share_by_month))),
+ rep("Ride-share Car Share By Month Pre-COVID",nrow(lm_log_compare_car_share(ride_share_market_share_by_month_pre_covid))),
+ rep("Ride-share Car Share By Month Pre-Tax",nrow(lm_log_compare_car_share(ride_share_market_share_by_month_pre_tax))),
+ rep("Car Service Car Share By Month",nrow(lm_log_compare_car_share(car_service_market_share_by_month))),
+ rep("Car Service Car Share By Month Pre-COVID",nrow(lm_log_compare_car_share(car_service_market_share_by_month_pre_covid))),
+ rep("Car Service Car Share By Month Pre-Tax",nrow(lm_log_compare_car_share(car_service_market_share_by_month_pre_tax)))
+ 
+ ),lm_log_car_share_df,Use_Log=lm_log_car_share_df$Log_T_Value>lm_log_car_share_df$Linear_T_Value)
+
+#Make sure to group by model. Some models may have one coefficient work better under a linear model than a logarithmic model but the others work better under a logarithmic model.If less than half of the coefficients benefit from a logarithmic model, then it may be simpler to use a linear model, unless the combined effect of all coefficients overcomes this discrepancy (i.e. 2 coefficients are slightly better under a linear model but all 3 coefficients together work better under a logarithmic model).
+
+total_trips_use_log=use_log_total_trips%>%
+  group_by(Model)%>%
+  summarize(Use_Log=mean(Use_Log))
+
+trips_per_car_use_log=use_log_trips_per_car%>%
+  group_by(Model)%>%
+  summarize(Use_Log=mean(Use_Log))
+
+trip_share_use_log=use_log_trip_share%>%
+  group_by(Model)%>%
+  summarize(Use_Log=mean(Use_Log))
+
+car_share_use_log=use_log_car_share%>%
+  group_by(Model)%>%
+  summarize(Use_Log=mean(Use_Log))
+
+if(mean(total_trips_use_log$Use_Log)>0.5){
+  print("For the most part, logarithmic models do a better job at estimating the total number of trips in the ride-share industry.")
+}else{
+  "For the most part, linear models do a better job at estimating the total number of trips in the ride-share industry."
+}
+
+if(mean(trips_per_car_use_log$Use_Log)>0.5){
+  print("For the most part, logarithmic models do a better job at estimating the trips per car in the ride-share industry.")
+}else{
+  "For the most part, linear models do a better job at estimating the trips per car in the ride-share industry."
+}
+
+if(mean(trip_share_use_log$Use_Log)>0.5){
+  print("For the most part, logarithmic models do a better job at estimating the proportion of non-taxi trips attributed to the ride-share industry.")
+}else{
+  "For the most part, linear models do a better job at estimating the total proportion of non-taxi trips attributed to the ride-share industry."
+}
+
+if(mean(car_share_use_log$Use_Log)>0.5){
+  print("For the most part, logarithmic models do a better job at estimating the proportion of active FHVs are attributed to the ride-share industry.")
+}else{
+  "For the most part, linear models do a better job at estimating the total proportion of active FHVs are attributed to the ride-share industry."
+}
+```
+
+Let's create the specific linear and logarithmic models.
+```{r Linear and Logarithmic Model Choosing Functions, warning=FALSE, echo=FALSE, message=FALSE}
+
+#Create different functions to choose whether a linear regression or linear of regression of a logarithmically scaled dataframe.
+
+lm_log_model_choosing_function_total_trips=function(Model_Name,df,lm_log_df_by_use_log){
+  if(lm_log_df_by_use_log$Use_Log[lm_log_df_by_use_log$Model==Model_Name]<1){
+    model=lm(total_trips~adj_month_no,data=df)
+  }else{
+    model=lm(log(total_trips)~log(adj_month_no),data=df)
+  }
+  return(model)
+}
+
+lm_log_model_choosing_function_trips_per_car=function(Model_Name,df,lm_log_df_by_use_log){
+  if(lm_log_df_by_use_log$Use_Log[lm_log_df_by_use_log$Model==Model_Name]<1){
+    model=lm(trips_per_car~adj_month_no,data=df)
+  }else{
+    model=lm(log(trips_per_car)~log(adj_month_no),data=df)
+  }
+  return(model)
+}
+
+lm_log_model_choosing_function_trip_share=function(Model_Name,df,lm_log_df_by_use_log){
+  if(lm_log_df_by_use_log$Use_Log[lm_log_df_by_use_log$Model==Model_Name]<1){
+    model=lm(trip_share~adj_month_no,data=df)
+  }else{
+    model=lm(log(trip_share)~log(adj_month_no),data=df)
+  }
+  return(model)
+}
+
+lm_log_model_choosing_function_car_share=function(Model_Name,df,lm_log_df_by_use_log){
+  if(lm_log_df_by_use_log$Use_Log[lm_log_df_by_use_log$Model==Model_Name]<1){
+    model=lm(car_share~adj_month_no,data=df)
+  }else{
+    model=lm(log(car_share)~log(adj_month_no),data=df)
+  }
+  return(model)
+}
+```
+
+```{r Models Predicting Total Trips, echo=FALSE, message=FALSE, warning=FALSE}
+
+ride_share_model_total_trips=lm_log_model_choosing_function_total_trips("Ride-share by Month",ride_share_by_month,use_log_total_trips)
+
+ride_share_pre_covid_model_total_trips=lm_log_model_choosing_function_total_trips("Ride-share by Month Pre-COVID",ride_share_by_month_pre_covid,use_log_total_trips)
+
+ride_share_pre_tax_model_total_trips=lm_log_model_choosing_function_total_trips("Ride-share by Month Pre-Tax",ride_share_by_month_pre_tax,use_log_total_trips)
+
+car_service_model_total_trips=lm_log_model_choosing_function_total_trips("Car Service by Month",other_by_month,use_log_total_trips)
+
+car_service_pre_tax_model_total_trips=lm_log_model_choosing_function_total_trips("Car Service by Month Pre-Tax",other_by_month_pre_tax,use_log_total_trips)
+
+car_service_pre_covid_model_total_trips=lm_log_model_choosing_function_total_trips("Car Service by Month Pre-COVID",other_by_month_pre_covid,use_log_total_trips)
+
+total_model_total_trips=lm_log_model_choosing_function_total_trips("Total by Month",total_by_month,use_log_total_trips)
+
+total_pre_tax_model_total_trips=lm_log_model_choosing_function_total_trips("Total by Month Pre-Tax",total_by_month_pre_tax,use_log_total_trips)
+
+total_pre_covid_model_total_trips=lm_log_model_choosing_function_total_trips("Total by Month Pre-COVID",total_by_month_pre_covid,use_log_total_trips)
+```
+
+```{r Models Predicting Trips Per Car, echo=FALSE, message=FALSE, warning=FALSE}
+
+ride_share_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Ride-share Trips Per Car by Month",ride_share_by_month,use_log_trips_per_car)
+
+ride_share_pre_covid_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Ride-share Trips Per Car by Month Pre-COVID",ride_share_by_month_pre_covid,use_log_trips_per_car)
+
+ride_share_pre_tax_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Ride-share Trips Per Car by Month Pre-Tax",ride_share_by_month_pre_tax,use_log_trips_per_car)
+
+car_service_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Car Service Trips Per Car by Month",other_by_month,use_log_trips_per_car)
+
+car_service_pre_tax_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Car Service Trips Per Car by Month Pre-Tax",other_by_month_pre_tax,use_log_trips_per_car)
+
+car_service_pre_covid_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Car Service Trips Per Car by Month Pre-COVID",other_by_month_pre_covid,use_log_trips_per_car)
+
+total_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Total Trips Per Car by Month",total_by_month,use_log_trips_per_car)
+
+total_pre_tax_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Total Trips Per Car by Month Pre-Tax",total_by_month_pre_tax,use_log_trips_per_car)
+
+total_pre_covid_model_trips_per_car=lm_log_model_choosing_function_trips_per_car("Total Trips Per Car by Month Pre-COVID",total_by_month_pre_covid,use_log_trips_per_car)
+```
+
+```{r Models for Trip Share, echo=FALSE, message=FALSE, warning=FALSE}
+
+ride_share_model_trip_share=lm_log_model_choosing_function_trip_share("Ride-share Market Share By Month",ride_share_market_share_by_month,use_log_trip_share)
+
+ride_share_pre_covid_model_trip_share=lm_log_model_choosing_function_trip_share("Ride-share Market Share By Month Pre-COVID",ride_share_market_share_by_month_pre_covid,use_log_trip_share)
+
+ride_share_pre_tax_model_trip_share=lm_log_model_choosing_function_trip_share("Ride-share Market Share By Month Pre-Tax",ride_share_market_share_by_month_pre_tax,use_log_trip_share)
+
+car_service_model_trip_share=lm_log_model_choosing_function_trip_share("Car Service Market Share By Month",car_service_market_share_by_month,use_log_trip_share)
+
+car_service_pre_tax_model_trip_share=lm_log_model_choosing_function_trip_share("Car Service Market Share By Month Pre-Tax",car_service_market_share_by_month_pre_tax,use_log_trip_share)
+
+car_service_pre_covid_model_trip_share=lm_log_model_choosing_function_trip_share("Car Service Market Share By Month Pre-COVID",car_service_market_share_by_month_pre_covid,use_log_trip_share)
+
+```
+
+```{r Models for Car Share, echo=FALSE, message=FALSE, warning=FALSE}
+
+ride_share_model_car_share=lm_log_model_choosing_function_car_share("Ride-share Car Share By Month",ride_share_market_share_by_month,use_log_car_share)
+
+ride_share_pre_covid_model_car_share=lm_log_model_choosing_function_car_share("Ride-share Car Share By Month Pre-COVID",ride_share_market_share_by_month_pre_covid,use_log_car_share)
+
+ride_share_pre_tax_model_car_share=lm_log_model_choosing_function_car_share("Ride-share Car Share By Month Pre-Tax",ride_share_market_share_by_month_pre_tax,use_log_car_share)
+
+car_service_model_car_share=lm_log_model_choosing_function_car_share("Car Service Car Share By Month",car_service_market_share_by_month,use_log_car_share)
+
+car_service_pre_tax_model_car_share=lm_log_model_choosing_function_car_share("Car Service Car Share By Month Pre-Tax",car_service_market_share_by_month_pre_tax,use_log_car_share)
+
+car_service_pre_covid_model_car_share=lm_log_model_choosing_function_car_share("Car Service Car Share By Month Pre-COVID",car_service_market_share_by_month_pre_covid,use_log_car_share)
+
+```
+
+### Model Summaries
+
+Now let's look at the results of the linear or logarithmic models I've chosen. I've created separate models for three different eras since the beginning of the aggregate base report dataset. There is the pre-tax era that shows the industry before a slew of City Council regulations went into effect mandating minimum driver pay and congestion surcharges. Then, there is the pre-COVID era which includes everything before March 2020 when New York State went into a state of emergency and issued a stay-at-home order, effectively bringing the state and city economies to their knees.
+
+
+Here are the predictive models for the total number of ride share trips.
+```{r Summary of Ride Share Total Trips, echo=FALSE, warning=FALSE, message=FALSE}
+#Total Trips
+summary(ride_share_model_total_trips)
+summary(ride_share_pre_covid_model_total_trips)
+summary(ride_share_pre_tax_model_total_trips)
+```
+Here are the predictive models for the total number of car service trips.
+
+```{r Summary of Car Service Total Trips, echo=FALSE, warning=FALSE, message=FALSE}
+summary(car_service_model_total_trips)
+summary(car_service_pre_covid_model_total_trips)
+summary(car_service_pre_tax_model_total_trips)
+```
+Here are the predictive models for the total number of non-taxi livery trips.
+
+```{r Summary of Industry Total Trips, echo=FALSE, warning=FALSE, message=FALSE}
+summary(total_model_total_trips)
+summary(total_pre_tax_model_total_trips)
+summary(total_pre_covid_model_total_trips)
+```
+Here are the predictive models for the number of ride share trips per car.
+
+```{r Summary of Ride Share Trips Per Car, echo=FALSE, warning=FALSE, message=FALSE}
+#Trips Per Car
+summary(ride_share_model_trips_per_car)
+summary(ride_share_pre_covid_model_trips_per_car)
+summary(ride_share_pre_tax_model_trips_per_car)
+```
+Here are the predictive models for the number of car service trips per car.
+
+```{r Summary of Car Service Trips Per Car, echo=FALSE, warning=FALSE, message=FALSE}
+summary(car_service_model_trips_per_car)
+summary(car_service_pre_covid_model_trips_per_car)
+summary(car_service_pre_tax_model_trips_per_car)
+```
+Here are the predictive models for the number of non-taxi trips per car.
+
+```{r Summary of Industry Trips Per Car, echo=FALSE, warning=FALSE, message=FALSE}
+summary(total_model_trips_per_car)
+summary(total_pre_covid_model_trips_per_car)
+summary(total_pre_tax_model_trips_per_car)
+```
+Here are the predictive models for the ride-share market share.
+
+```{r Summary of Ride Share Market Share, echo=FALSE, warning=FALSE, message=FALSE}
+#Trip Share
+summary(ride_share_model_trip_share)
+summary(ride_share_pre_covid_model_trip_share)
+summary(ride_share_pre_tax_model_trip_share)
+```
+Here are the predictive models for the car service market share.
+
+```{r Summary of Car Service Market Share, echo=FALSE, warning=FALSE, message=FALSE}
+summary(car_service_model_trip_share)
+summary(car_service_pre_covid_model_trip_share)
+summary(car_service_pre_tax_model_trip_share)
+```
+Here are the predictive models for the proportion of active FHVs affiliated with ride share bases.
+
+```{r Summary of Ride Share Car Share, echo=FALSE, warning=FALSE, message=FALSE}
+#Car Share
+summary(ride_share_model_car_share)
+summary(ride_share_pre_covid_model_car_share)
+summary(ride_share_pre_tax_model_car_share)
+```
+Here are the predictive models for the proportion of active FHVs affiliated with car service bases.
+
+```{r Summary of Car Service Car Share, echo=FALSE, warning=FALSE, message=FALSE}
+summary(car_service_model_car_share)
+summary(car_service_pre_covid_model_car_share)
+summary(car_service_pre_tax_model_car_share)
+```
+
+
+```{r Final Chunk, echo=FALSE, message=FALSE, warning=FALSE}
+notebook_end_time=Sys.time()
+notebook_execution_time=difftime(notebook_end_time,notebook_start_time,units="mins")
+notebook_execution_time=round(as.numeric(notebook_execution_time),2)
+```
+
+This file took **`r notebook_execution_time` minutes** to execute, with **`r install_execution_time` seconds to install previously unloaded packages**
+
